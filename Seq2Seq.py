@@ -59,3 +59,35 @@ def read_examples(data_file, eng2mar=True):
             pairs.append((tokenizer_mar.encode(mar), tokenizer_eng.encode(eng)))
 
     return pairs, tokenizer_eng, tokenizer_mar if eng2mar else pairs, tokenizer_mar, tokenizer_eng
+
+
+class LSTMEncoder(nn.Module):
+    def __init__(self, hidden_size, embedding_size, vocab_len):
+        super(LSTMEncoder, self).__init__()
+        self.hidden_size = hidden_size
+        self.embedding_size = embedding_size
+        self.embedding = nn.Embedding(vocab_len, embedding_size)
+        self.lstm = nn.LSTM(embedding_size, hidden_size)
+
+    def forward(self, input):
+        embedded = self.embedding(input)
+        output, hidden = self.lstm(embedded)  # hidden_state_0 automatically initialized to 0
+        return output, hidden
+
+
+class LSTMDecoder(nn.Module):
+    def __init__(self, embedding_size, hidden_size, vocab_len):
+        super(LSTMDecoder, self).__init__()
+        self.hidden_size = hidden_size
+        self.embedding_size = embedding_size
+        self.embedding = nn.Embedding(vocab_len, hidden_size)
+        self.lstm = nn.LSTM(embedding_size, hidden_size)
+        self.dense = nn.Linear(hidden_size, vocab_len)
+
+    def forward(self, input, hidden):
+        embedded = self.embedding(input)
+        output, hidden = self.lstm(embedded, hidden)
+        decoded = nn.Softmax()(self.dense(output))
+        return output, hidden, decoded
+
+
