@@ -5,6 +5,7 @@ from tqdm import tqdm
 
 import torch
 from torch import nn
+from torch.utils.data import Dataset, DataLoader
 
 
 class Tokenizer:
@@ -36,29 +37,16 @@ class Tokenizer:
             print("Trained a tokenizer with vocab size {}".format(self.tokenizer.get_vocab_size()))
 
     def encode(self, decoded):
-        return self.tokenizer.encode(decoded)
+        if not isinstance(decoded, list):
+            decoded = [decoded]
+        # Hacky way to encode SOS: Start of Sentence and End of Sentence
+        decoded = ["[SOS] {} [EOS]".format(i) for i in decoded]
+        return self.tokenizer.encode_batch(decoded)
 
     def decode(self, encoded):
-        return self.tokenizer.decode(encoded)
-
-
-def read_examples(data_file, eng2mar=True):
-    data = np.loadtxt(data_file, delimiter='\t', encoding="utf-8", dtype=str)
-
-    english_sentences = data[:, 0].tolist()
-    marathi_sentences = data[:, 1].tolist()
-    tokenizer_eng = Tokenizer(lang="eng")
-    tokenizer_mar = Tokenizer(lang="mar")
-    tokenizer_eng.train_tokenizer(english_sentences)
-    tokenizer_mar.train_tokenizer(marathi_sentences)
-    pairs = []
-    for eng, mar in zip(english_sentences, marathi_sentences):
-        if eng2mar:
-            pairs.append((tokenizer_eng.encode(eng), tokenizer_mar.encode(mar)))
-        else:
-            pairs.append((tokenizer_mar.encode(mar), tokenizer_eng.encode(eng)))
-
-    return pairs, tokenizer_eng, tokenizer_mar if eng2mar else pairs, tokenizer_mar, tokenizer_eng
+        if not isinstance(encoded, list):
+            encoded = [encoded]
+        return self.tokenizer.decode_batch(encoded)
 
 
 class LSTMEncoder(nn.Module):
@@ -91,3 +79,43 @@ class LSTMDecoder(nn.Module):
         return output, hidden, decoded
 
 
+class MachineTranslationDataset(Dataset):
+    def __int__(self, data_file, reverse_translation=False):
+        self.reverse_translation = reverse_translation
+
+        # Only the first 2 columns contain the text, ignoring the rest
+        data = np.loadtxt(data_file, delimiter='\t', encoding="utf-8", dtype=str)[:, :2]
+        self.lang1_sentences = data[:, 0].tolist()
+        self.lang2_sentences = data[:, 1].tolist()
+
+        self.lang1_tokenizer = Tokenizer(lang="lang1")
+        self.lang2_tokenizer = Tokenizer(lang="lang2")
+        self.lang1_tokenizer.train_tokenizer(self.lang1_sentences)
+        self.lang2_tokenizer.train_tokenizer(self.lang2_sentences)
+
+        self.transformed_data = []
+
+        # Tokenizing all sentences since its a tiny dataset
+        for lang1_sentence, lang2_sentence in zip(self.lang1_sentences, self.lang2_sentences):
+            if not self.reverse_translation:
+                self.transformed_data.append([self.lang1_tokenizer.encode(lang1_sentence),
+                                              self.lang2_tokenizer.encode(lang2_sentence)])
+            else:
+                self.transformed_data.append([self.lang2_tokenizer.encode(lang2_sentence),
+                                              self.lang1_tokenizer.encode(lang1_sentence)])
+        self.transformed_data = np.array(self.transformed_data)
+
+    def __len__(self):
+        return self.transformed_data.shape[0]
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+
+        encoded_pairs = self.transformed_data[idx, :]
+        lang1, lang2 = torch.from_numpy(encoded_pairs[:, 0]), torch.from_numpy(encoded_pairs[:, 1])
+        return lang1, lang2
+
+
+def train_seq2seq(dataset):
+    dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
