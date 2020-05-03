@@ -1,11 +1,19 @@
 from tokenizers import BertWordPieceTokenizer
 import os
 import numpy as np
-from tqdm import tqdm
 
 import torch
-from torch import nn
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
+
+DEVICE = "cpu"
+
+if torch.cuda.is_available():
+    DEVICE = "cuda"
+
+# Based on the max token length of encoded sentences
+MAX_LENGTH = 60
+SOS_TOKEN = "[CLS]"
+EOS_TOKEN = "[SEP]"
 
 
 class Tokenizer:
@@ -20,67 +28,39 @@ class Tokenizer:
         self.vocab = self.tokenizer_dir + "/vocab.txt"
         if os.path.exists(self.vocab):
             print("Initialized tokenizer using cached vocab file {}".format(self.vocab))
-            self.tokenizer = BertWordPieceTokenizer(self.vocab)
+            self.tokenizer = BertWordPieceTokenizer(vocab_file=self.vocab)
         else:
             self.tokenizer = BertWordPieceTokenizer()
+
+        self.tokenizer.enable_padding(max_length=MAX_LENGTH)
+        self.tokenizer.enable_truncation(max_length=MAX_LENGTH)
 
     def train_tokenizer(self, sentences):
         """
         Train a tokenizer with a list of sentences
         """
+
         if not os.path.exists(self.vocab):
             print("Training tokenizer for {}".format(self.tokenizer_dir))
+            # Hugging Face only accepts a Temp File with sentences for Training Tokenizer
             with open(self.tokenizer_dir + "/data.txt", "w+", encoding="utf-8") as f:
                 [f.write(i + "\n") for i in sentences]
             self.tokenizer.train([self.tokenizer_dir + "/data.txt"])
             self.tokenizer.save(self.tokenizer_dir)
             print("Trained a tokenizer with vocab size {}".format(self.tokenizer.get_vocab_size()))
 
+            # Removing the temp file
+            os.remove(self.tokenizer_dir + "/data.txt")
+
     def encode(self, decoded):
-        if not isinstance(decoded, list):
-            decoded = [decoded]
-        # Hacky way to encode SOS: Start of Sentence and End of Sentence
-        decoded = ["[SOS] {} [EOS]".format(i) for i in decoded]
-        return self.tokenizer.encode_batch(decoded)
+        return self.tokenizer.encode(decoded)
 
     def decode(self, encoded):
-        if not isinstance(encoded, list):
-            encoded = [encoded]
         return self.tokenizer.decode_batch(encoded)
 
 
-class LSTMEncoder(nn.Module):
-    def __init__(self, hidden_size, embedding_size, vocab_len):
-        super(LSTMEncoder, self).__init__()
-        self.hidden_size = hidden_size
-        self.embedding_size = embedding_size
-        self.embedding = nn.Embedding(vocab_len, embedding_size)
-        self.lstm = nn.LSTM(embedding_size, hidden_size)
-
-    def forward(self, input):
-        embedded = self.embedding(input)
-        output, hidden = self.lstm(embedded)  # hidden_state_0 automatically initialized to 0
-        return output, hidden
-
-
-class LSTMDecoder(nn.Module):
-    def __init__(self, embedding_size, hidden_size, vocab_len):
-        super(LSTMDecoder, self).__init__()
-        self.hidden_size = hidden_size
-        self.embedding_size = embedding_size
-        self.embedding = nn.Embedding(vocab_len, hidden_size)
-        self.lstm = nn.LSTM(embedding_size, hidden_size)
-        self.dense = nn.Linear(hidden_size, vocab_len)
-
-    def forward(self, input, hidden):
-        embedded = self.embedding(input)
-        output, hidden = self.lstm(embedded, hidden)
-        decoded = nn.Softmax()(self.dense(output))
-        return output, hidden, decoded
-
-
 class MachineTranslationDataset(Dataset):
-    def __int__(self, data_file, reverse_translation=False):
+    def __init__(self, data_file, reverse_translation=False):
         self.reverse_translation = reverse_translation
 
         # Only the first 2 columns contain the text, ignoring the rest
@@ -95,7 +75,7 @@ class MachineTranslationDataset(Dataset):
 
         self.transformed_data = []
 
-        # Tokenizing all sentences since its a tiny dataset
+        print("Tokenizing all sentences in the dataset...")
         for lang1_sentence, lang2_sentence in zip(self.lang1_sentences, self.lang2_sentences):
             if not self.reverse_translation:
                 self.transformed_data.append([self.lang1_tokenizer.encode(lang1_sentence),
@@ -113,9 +93,14 @@ class MachineTranslationDataset(Dataset):
             idx = idx.tolist()
 
         encoded_pairs = self.transformed_data[idx, :]
-        lang1, lang2 = torch.from_numpy(encoded_pairs[:, 0]), torch.from_numpy(encoded_pairs[:, 1])
-        return lang1, lang2
+        src = {"token_ids": torch.tensor(encoded_pairs[0].ids).type(torch.long).to(DEVICE),
+               "attention_mask": torch.tensor(encoded_pairs[0].attention_mask).type(torch.bool).to(DEVICE)}
+        target = {"token_ids": torch.tensor(encoded_pairs[0].ids).type(torch.long).to(DEVICE),
+                  "attention_mask": torch.tensor(encoded_pairs[0].attention_mask).type(torch.bool).to(DEVICE)},
+        return src, target
 
 
-def train_seq2seq(dataset):
-    dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
+if __name__ == "__main__":
+    dataset = MachineTranslationDataset(r"data/mar.txt")
+    # Test Tokenizer output
+    print(dataset[0])
