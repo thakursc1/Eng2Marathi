@@ -3,6 +3,7 @@
  Pytorch Implementation of [Neural Machine Translation by Jointly Learning to Align and Translate (2014)](https://arxiv.org/abs/1409.0473) 
 ![Attention Animation](https://github.com/thakursc1/Eng2Marathi/blob/master/gifs/read_me_attention_animation.gif)
 
+# Let's start!	:loud_sound: चला सुरुवात करू या!
 
 ### Highlights 
 1. Use Hugging Face's custom trained BERTWordPieceTokenizer
