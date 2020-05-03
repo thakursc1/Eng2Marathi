@@ -95,8 +95,7 @@ class MachineTranslationDataset(Dataset):
         encoded_pairs = self.transformed_data[idx, :]
         src = {"token_ids": torch.tensor(encoded_pairs[0].ids).type(torch.long).to(DEVICE),
                "attention_mask": torch.tensor(encoded_pairs[0].attention_mask).type(torch.bool).to(DEVICE)}
-        target = {"token_ids": torch.tensor(encoded_pairs[0].ids).type(torch.long).to(DEVICE),
-                  "attention_mask": torch.tensor(encoded_pairs[0].attention_mask).type(torch.bool).to(DEVICE)},
+        target = {"token_ids": torch.tensor(encoded_pairs[0].ids).type(torch.long).to(DEVICE)}
         return src, target
 
 

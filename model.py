@@ -12,18 +12,19 @@ EMBEDDING_SIZE = 32
 
 class Seq2Seq(nn.Module):
     def __init__(self, hidden_size, embedding_size, encoder_vocab_len, decoder_vocab_len, decoder_sos_token,
-                 decoder_eos_token, attention_mask, num_layers=1, bidirectional=False):
+                 decoder_eos_token, num_layers=1, bidirectional=False):
         super(Seq2Seq, self).__init__()
         self.encoder = Encoder(hidden_size, embedding_size, encoder_vocab_len, num_layers,
                                bidirectional)
         self.decoder = Decoder(hidden_size, embedding_size, decoder_vocab_len, decoder_eos_token,
                                decoder_sos_token, num_layers,
                                bidirectional)
-        self.attention_mask = attention_mask
 
-    def forward(self, encoder_input):
+    def forward(self, encoder_input, attention_mask, teacher_forcing=0, target_output=None):
         encoder_output, encoder_hidden = self.encoder(encoder_input)
-        return self.decoder(encoder_output, encoder_hidden, self.attention_mask)
+        teacher_forcing = teacher_forcing if self.training else 0
+        return self.decoder(encoder_output, encoder_hidden, attention_mask, teacher_forcing=teacher_forcing,
+                            target_output=target_output)
 
 
 class Encoder(nn.Module):
@@ -103,7 +104,7 @@ class Decoder(nn.Module):
 
     def forward(self, encoder_output, encoder_hidden, attention_mask, max_length=MAX_LENGTH, teacher_forcing=0.5,
                 target_output=None):
-        output_len = target_output.size(0) if target_output else max_length
+        output_len = target_output.size(0) if self.training else MAX_LENGTH
         decoder_hidden = encoder_hidden[-1]
         decoder_output = self.sos_token
 
@@ -122,7 +123,7 @@ class Decoder(nn.Module):
             decoded_output_sequence.append(decoder_output)
             attention_weights_sequence.append(attention_weights)
 
-            if use_teacher_forcing and target_output:
+            if use_teacher_forcing and self.training:
                 decoder_output = target_output[i]  # Teacher forcing
             else:
 
@@ -142,7 +143,7 @@ if __name__ == "__main__":
     example = dataset[0]
     print(example[0], ENCODER_VOCAB_LEN, DECODER_VOCAB_LEN, DECODER_EOS_TOKEN_ID, DECODER_SOS_TOKEN_ID)
     model = Seq2Seq(HIDDEN_SIZE, EMBEDDING_SIZE, ENCODER_VOCAB_LEN, DECODER_VOCAB_LEN, DECODER_SOS_TOKEN_ID,
-                    DECODER_EOS_TOKEN_ID, attention_mask=example[0]["attention_mask"])
+                    DECODER_EOS_TOKEN_ID)
     model.to(DEVICE)
-    output, attention_weights, logits = model(example[0]["token_ids"])
+    output, attention_weights, logits = model(example[0]["token_ids"], attention_mask=example[0]["attention_mask"])
     print(output, attention_weights)
